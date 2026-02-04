@@ -66,19 +66,26 @@
         }
         .web-search-toggle.active { border-color: var(--primary); color: var(--primary); box-shadow: 0 0 10px rgba(0, 255, 136, 0.2); }
 
+        /* تعديل الحاوية لتدعم التوسع للأعلى (flex-end) */
         .input-container { 
-            background: #151515; border: 1px solid #333; border-radius: 50px; 
-            display: flex; align-items: center; padding: 5px 10px; 
-            max-width: 900px; margin: 0 auto; 
+            background: #151515; border: 1px solid #333; border-radius: 25px; 
+            display: flex; align-items: flex-end; padding: 10px; 
+            max-width: 900px; margin: 0 auto; gap: 5px;
         }
-        .input-container input { flex: 1; background: transparent; border: none; color: white; padding: 12px; outline: none; font-size: 1rem; }
         
-        .action-icon { color: var(--primary); font-size: 1.3rem; cursor: pointer; padding: 10px; display: inline-block; }
-        .send-btn-small { background: var(--primary); color: #000; border: none; width: 42px; height: 42px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.3s; }
+        /* تحويل حقل الإدخال إلى Textarea مرن */
+        .input-container textarea { 
+            flex: 1; background: transparent; border: none; color: white; 
+            padding: 8px; outline: none; font-size: 1rem; resize: none; 
+            max-height: 150px; min-height: 24px; line-height: 1.5;
+        }
+        
+        .action-icon { color: var(--primary); font-size: 1.3rem; cursor: pointer; padding: 5px; display: inline-block; }
+        .send-btn-small { background: var(--primary); color: #000; border: none; width: 42px; height: 42px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.3s; flex-shrink: 0; }
         .send-btn-small.stop-active { 
-    background: var(--primary) !important; 
-    color: #000 !important; 
-}
+            background: var(--primary) !important; 
+            color: #000 !important; 
+        }
 
         .source-card {
             display: inline-flex; align-items: center; gap: 8px; 
@@ -152,7 +159,7 @@
         <label for="image-input" class="action-icon"><i class="fas fa-camera"></i></label>
         <input type="file" id="image-input" accept="image/*" style="display:none" onchange="previewImage(this)">
         
-        <input type="text" id="userInput" placeholder="اسأل Glow..." onkeypress="if(event.key==='Enter') askAI()">
+        <textarea id="userInput" rows="1" placeholder="اسأل Glow..." oninput="autoResize(this)"></textarea>
         
         <button id="sendBtn" class="send-btn-small" onclick="askAI()">
             <i id="sendIcon" class="fas fa-paper-plane"></i>
@@ -173,7 +180,6 @@
 <script>
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-    // تمويه المفتاح (Obfuscation) لحمايته من الحظر التلقائي عند النشر
     const p1 = "sk-or-v1-";
     const p2 = "a38edadebdd2115f8aeaaa5e0b2bf0ca";
     const p3 = "a42887de22e33536ada71561950623d9";
@@ -194,6 +200,12 @@
         if(isAdmin) { document.getElementById('plus-btn').style.display="none"; document.getElementById('admin-tag').style.display="block"; }
         syncUI();
     };
+
+    // دالة تكبير شريط الكتابة تلقائياً
+    function autoResize(textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = textarea.scrollHeight + 'px';
+    }
 
     function toggleWebSearch() {
         isWebSearch = !isWebSearch;
@@ -268,19 +280,15 @@
 
         addMessage(text || "تحليل صورة...", "user", false, selectedImageBase64);
         
-        // بناء المحتوى ليتوافق مع Gemini 2.0
-        let currentContent;
-        if (selectedImageBase64) {
-            currentContent = [
-                { type: "text", text: text || "ماذا يوجد في هذه الصورة؟" },
-                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${selectedImageBase64}` } }
-            ];
-        } else {
-            currentContent = text;
-        }
+        let currentContent = selectedImageBase64 ? [
+            { type: "text", text: text || "ماذا يوجد في هذه الصورة؟" },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${selectedImageBase64}` } }
+        ] : text;
 
         chatHistory.push({ role: "user", content: currentContent });
-        const currentImg = selectedImageBase64; cancelImage(); input.value = "";
+        cancelImage(); 
+        input.value = "";
+        input.style.height = 'auto'; // إعادة حجم الشريط للوضع الطبيعي
 
         const chatBox = document.getElementById('chat-box');
         const typing = document.createElement('div');
@@ -293,9 +301,6 @@
             if (pdfText) sysPrompt += "\nمحتوى الرزمة:\n" + pdfText;
             if (isWebSearch) sysPrompt += "\nاستخدم البحث وقدم المصادر بوضوح.";
 
-            let messages = [{ role: "system", content: sysPrompt }];
-            chatHistory.slice(-6).forEach(m => messages.push(m));
-
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: { 
@@ -306,8 +311,7 @@
                 },
                 body: JSON.stringify({ 
                     model: "google/gemini-2.0-flash-001", 
-                    messages: messages,
-                    temperature: 0.7 
+                    messages: [{ role: "system", content: sysPrompt }, ...chatHistory.slice(-6)] 
                 })
             });
 
@@ -319,15 +323,12 @@
                 setStopState(true);
                 addMessage(aiRes, "ai", true);
                 chatHistory.push({ role: "assistant", content: aiRes });
-                
                 if(!isAdmin) { attempts--; localStorage.setItem('Glow_usage_' + deviceId, attempts); syncUI(); }
                 saveChat();
-            } else {
-                throw new Error("API Error");
             }
         } catch (e) { 
             if (typing.parentNode) chatBox.removeChild(typing);
-            addMessage("عذراً، حدث خطأ. تأكد من اتصال الإنترنت أو رصيد المفتاح.", "ai", false); 
+            addMessage("عذراً، حدث خطأ في الاتصال.", "ai", false); 
         }
     }
 
@@ -340,7 +341,6 @@
         if(img) msgDiv.innerHTML += `<img src="data:image/jpeg;base64,${img}" style="max-width:100%; border-radius:8px; margin-bottom:10px;"><br>`;
         chatBox.appendChild(div);
         
-        // استخراج النص إذا كان المحتوى مصفوفة (في حالة التاريخ)
         const displayText = Array.isArray(text) ? text.find(t => t.type === 'text')?.text || "تحليل وسائط..." : text;
 
         if(side === 'ai' && anim) {
